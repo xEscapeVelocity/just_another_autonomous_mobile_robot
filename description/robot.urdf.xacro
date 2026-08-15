@@ -1,7 +1,13 @@
 <?xml version="1.0"?>
-<robot xmlns:xacro="http://www.ros.org/wiki/xacro"  name="robot">
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="robot">
 
-    <!-- Example link -->
-    <link name="base_link"></link>
+    <!-- Include mass & inertia helper macros -->
+    <xacro:include filename="inertial_macros.xacro" />
+
+    <!-- Include core robot structural geometry, visuals, collisions & Gazebo friction -->
+    <xacro:include filename="robot_core.xacro" />
+
+    <!-- Include Gazebo physics control plugin -->
+    <xacro:include filename="gazebo_control.xacro" />
 
 </robot>
