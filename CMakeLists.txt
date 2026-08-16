@@ -33,7 +33,12 @@ if(BUILD_TESTING)
 endif()
 
 install(
-  DIRECTORY config description launch worlds
+  PROGRAMS scripts/esp32_bridge.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+install(
+  DIRECTORY config description launch worlds esp32
   DESTINATION share/${PROJECT_NAME}
 )
 
