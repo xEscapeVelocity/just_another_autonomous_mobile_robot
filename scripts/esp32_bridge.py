@@ -140,8 +140,9 @@ class ESP32BridgeNode(Node):
 
         try:
             line = self.ser.readline().decode('utf-8', errors='ignore').strip()
-            if line.startswith("CMD,"):
-                parts = line.split(',')
+            if "CMD," in line:
+                cmd_part = line[line.find("CMD,"):]
+                parts = cmd_part.split(',')
                 if len(parts) >= 3:
                     linear_x = float(parts[1])
                     angular_z = float(parts[2])

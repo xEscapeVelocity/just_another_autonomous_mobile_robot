@@ -3,10 +3,10 @@
  * 
  * Hardware Setup:
  * - 4 Touch Wires (Jumper wires plugged into ESP32 with free ends to touch):
- *     GPIO 4  (Touch 0) -> Forward
- *     GPIO 15 (Touch 3) -> Backward
- *     GPIO 13 (Touch 4) -> Turn Left
- *     GPIO 27 (Touch 7) -> Turn Right
+ *     GPIO 4  (Touch 0 / D4)  -> Forward
+ *     GPIO 15 (Touch 3 / D15) -> Backward
+ *     GPIO 13 (Touch 4 / D13) -> Turn Left
+ *     GPIO 27 (Touch 7 / D27) -> Turn Right
  * 
  * - 4 LEDs (connected via 220 Ohm resistors to GND):
  *     GPIO 18 -> Green LED (Forward)
@@ -16,25 +16,27 @@
  */
 
 // Pin Definitions
-const int TOUCH_FWD = 4;
-const int TOUCH_BWD = 15;
-const int TOUCH_LEFT = 13;
-const int TOUCH_RIGHT = 27;
+const int PIN_TOUCH_FWD   = 4;   // Touch channel T0
+const int PIN_TOUCH_BWD   = 15;  // Touch channel T3
+const int PIN_TOUCH_LEFT  = 13;  // Touch channel T4
+const int PIN_TOUCH_RIGHT = 27;  // Touch channel T7
 
-const int LED_GREEN = 18;
+const int LED_GREEN    = 18;
 const int LED_YELLOW_L = 19;
 const int LED_YELLOW_R = 21;
-const int LED_RED = 22;
+const int LED_RED      = 22;
 
-// Capacitive Touch Threshold (Untouched is ~70-90, touched drops below 40)
-const int TOUCH_THRESHOLD = 40;
+// Touch threshold: Untouched is ~800-1000, Touched is ~40-210.
+// A threshold of 350 gives clean, instant, noise-free triggering!
+const int TOUCH_THRESHOLD = 350;
 
 unsigned long lastSendTime = 0;
 const unsigned long SEND_INTERVAL_MS = 50; // 20 Hz update rate
 
 void setup() {
   Serial.begin(115200);
-  
+  delay(200);
+
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_YELLOW_L, OUTPUT);
   pinMode(LED_YELLOW_R, OUTPUT);
@@ -45,6 +47,8 @@ void setup() {
   digitalWrite(LED_YELLOW_L, LOW);
   digitalWrite(LED_YELLOW_R, LOW);
   digitalWrite(LED_RED, HIGH);
+
+  Serial.println("\n--- ESP32 Touch Controller Ready (Threshold: 350) ---");
 }
 
 void updateLEDs(float linear_x, float angular_z) {
@@ -61,8 +65,7 @@ void updateLEDs(float linear_x, float angular_z) {
 }
 
 void loop() {
-  // 1. Check for incoming status/telemetry from ROS 2 Host
-  // Format: "STATUS,<linear_x>,<angular_z>\n"
+  // 1. Check for incoming telemetry from ROS 2 Node (overrides local LED state if ROS active)
   if (Serial.available() > 0) {
     String line = Serial.readStringUntil('\n');
     line.trim();
@@ -77,38 +80,44 @@ void loop() {
     }
   }
 
-  // 2. Read Capacitive Touch inputs and send CMD to ROS 2
+  // 2. Read Touch Sensors at 20 Hz
   if (millis() - lastSendTime >= SEND_INTERVAL_MS) {
     lastSendTime = millis();
 
-    int valFwd = touchRead(TOUCH_FWD);
-    int valBwd = touchRead(TOUCH_BWD);
-    int valLeft = touchRead(TOUCH_LEFT);
-    int valRight = touchRead(TOUCH_RIGHT);
+    int valFwd   = touchRead(PIN_TOUCH_FWD);
+    int valBwd   = touchRead(PIN_TOUCH_BWD);
+    int valLeft  = touchRead(PIN_TOUCH_LEFT);
+    int valRight = touchRead(PIN_TOUCH_RIGHT);
 
     float linear_x = 0.0;
     float angular_z = 0.0;
 
-    if (valFwd < TOUCH_THRESHOLD) {
+    bool touchedFwd   = (valFwd < TOUCH_THRESHOLD);
+    bool touchedBwd   = (valBwd < TOUCH_THRESHOLD);
+    bool touchedLeft  = (valLeft < TOUCH_THRESHOLD);
+    bool touchedRight = (valRight < TOUCH_THRESHOLD);
+
+    // Linear speed calculation
+    if (touchedFwd && !touchedBwd) {
       linear_x = 0.5;
-    } else if (valBwd < TOUCH_THRESHOLD) {
+    } else if (touchedBwd && !touchedFwd) {
       linear_x = -0.5;
     }
 
-    if (valLeft < TOUCH_THRESHOLD) {
+    // Steering calculation (Supports simultaneous touches like Forward + Turn!)
+    if (touchedLeft && !touchedRight) {
       angular_z = 1.0;
-    } else if (valRight < TOUCH_THRESHOLD) {
+    } else if (touchedRight && !touchedLeft) {
       angular_z = -1.0;
     }
 
-    // Send velocity command to PC: "CMD,<linear_x>,<angular_z>"
+    // Print command for ROS 2 Serial Bridge
     Serial.print("CMD,");
     Serial.print(linear_x, 2);
     Serial.print(",");
     Serial.println(angular_z, 2);
 
-    // If running standalone (without ROS node connected), update LEDs directly
-    // based on touch state as immediate physical feedback
+    // Update physical breadboard LEDs immediately for standalone visual feedback
     updateLEDs(linear_x, angular_z);
   }
 }
