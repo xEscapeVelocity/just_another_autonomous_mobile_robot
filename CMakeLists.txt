@@ -33,7 +33,7 @@ if(BUILD_TESTING)
 endif()
 
 install(
-  PROGRAMS scripts/esp32_bridge.py
+  PROGRAMS scripts/esp32_bridge.py scripts/wireless_bridge.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
