@@ -10,4 +10,7 @@
     <!-- Include Gazebo physics control plugin -->
     <xacro:include filename="gazebo_control.xacro" />
 
+    <!-- Include 2D LIDAR sensor -->
+    <xacro:include filename="lidar.xacro" />
+
 </robot>
