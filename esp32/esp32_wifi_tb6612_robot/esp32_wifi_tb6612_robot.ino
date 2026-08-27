@@ -24,9 +24,9 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 
-// WiFi Configuration - Must match your home WiFi or Laptop Hotspot
-const char* ssid     = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+// WiFi Configuration - Must match your 2.4 GHz WiFi
+const char* ssid     = "Brajesh_2.4GHz";
+const char* password = "Ash@0812#@";
 
 // UDP Port to receive motor velocity commands from Laptop ROS 2
 const int udp_port = 8889;
