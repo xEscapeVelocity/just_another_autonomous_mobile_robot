@@ -61,9 +61,18 @@ def generate_launch_description():
         output='screen'
     )
 
+    # Synchronized TF broadcaster from Odometry -> BaseLink
+    odom_to_tf_node = Node(
+        package=package_name,
+        executable='odom_to_tf.py',
+        parameters=[{'use_sim_time': True}],
+        output='screen'
+    )
+
     return LaunchDescription([
         rsp,
         gazebo,
         spawn_entity,
         bridge,
+        odom_to_tf_node,
     ])

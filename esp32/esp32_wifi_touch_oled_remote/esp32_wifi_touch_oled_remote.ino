@@ -1,7 +1,7 @@
 /*
- * Wireless ESP32 Handheld Remote with Auto-Calibrating Touch Sensitivity & OLED Dashboard
+ * Wireless ESP32 Handheld Remote with Continuous Adaptive Touch Tracking & OLED Dashboard
  * 
- * Works seamlessly on BOTH USB power and 18650 Battery power!
+ * Auto-connects to 2.4 GHz Wi-Fi: "Brajesh"
  */
 
 #include <WiFi.h>
@@ -10,9 +10,9 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-// WiFi Configuration - Enter your WiFi SSID and Password
-const char* ssid     = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+// 2.4 GHz WiFi Configuration
+const char* ssid     = "Brajesh_2.4GHz";
+const char* password = "Ash@0812#@";
 
 // Laptop IP running ROS 2 (UDP Target)
 const char* laptop_ip = "192.168.29.131";
@@ -24,7 +24,7 @@ WiFiUDP udp;
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// OLED Custom I2C Pins
+// OLED Custom I2C Pins (GPIO 32, GPIO 33)
 const int PIN_OLED_SDA = 32;
 const int PIN_OLED_SCL = 33;
 
@@ -34,15 +34,15 @@ const int PIN_TOUCH_BWD   = 15;
 const int PIN_TOUCH_LEFT  = 13;
 const int PIN_TOUCH_RIGHT = 27;
 
-// LED Pins
+// Breadboard LED Pins
 const int LED_GREEN    = 18;
 const int LED_YELLOW_L = 19;
 const int LED_YELLOW_R = 21;
 const int LED_RED      = 22;
 
-// Auto-Calibrated Baselines & Thresholds
-int baseFwd = 800, baseBwd = 800, baseLeft = 800, baseRight = 800;
-int threshFwd = 550, threshBwd = 550, threshLeft = 550, threshRight = 550;
+// Continuous Adaptive Baselines
+float baseFwd = 700.0, baseBwd = 700.0, baseLeft = 700.0, baseRight = 700.0;
+const int TOUCH_DELTA = 100; // Drop of 100 below baseline triggers touch
 
 unsigned long lastSendTime = 0;
 const unsigned long SEND_INTERVAL_MS = 50; // 20 Hz
@@ -104,34 +104,6 @@ void updateOLED(float linear_x, float angular_z, const char* state_text, bool wi
   display.display();
 }
 
-void calibrateTouchSensors() {
-  Serial.println("Calibrating touch baselines (keep hands away from wires)...");
-  long sumFwd = 0, sumBwd = 0, sumLeft = 0, sumRight = 0;
-  int samples = 20;
-
-  for (int i = 0; i < samples; i++) {
-    sumFwd   += touchRead(PIN_TOUCH_FWD);
-    sumBwd   += touchRead(PIN_TOUCH_BWD);
-    sumLeft  += touchRead(PIN_TOUCH_LEFT);
-    sumRight += touchRead(PIN_TOUCH_RIGHT);
-    delay(30);
-  }
-
-  baseFwd   = sumFwd / samples;
-  baseBwd   = sumBwd / samples;
-  baseLeft  = sumLeft / samples;
-  baseRight = sumRight / samples;
-
-  // Set threshold to 70% of untouched baseline (e.g. 800 -> 560)
-  threshFwd   = (int)(baseFwd * 0.70);
-  threshBwd   = (int)(baseBwd * 0.70);
-  threshLeft  = (int)(baseLeft * 0.70);
-  threshRight = (int)(baseRight * 0.70);
-
-  Serial.printf("Baselines -> Fwd:%d Bwd:%d Left:%d Right:%d\n", baseFwd, baseBwd, baseLeft, baseRight);
-  Serial.printf("Thresholds -> Fwd:%d Bwd:%d Left:%d Right:%d\n", threshFwd, threshBwd, threshLeft, threshRight);
-}
-
 void setup() {
   Serial.begin(115200);
 
@@ -149,38 +121,36 @@ void setup() {
     display.setTextColor(SSD1306_WHITE);
     display.setTextSize(1);
     display.setCursor(10, 20);
-    display.println("CALIBRATING...");
-    display.display();
-  }
-
-  // Calibrate Touch for current power source (Battery or USB)
-  calibrateTouchSensors();
-
-  if (oledAvailable) {
-    display.clearDisplay();
-    display.setCursor(10, 20);
     display.println("CONNECTING WIFI...");
     display.display();
   }
 
-  // Connect to Wi-Fi
+  // Initial baseline sampling
+  for (int i = 0; i < 15; i++) {
+    baseFwd   = (baseFwd * 0.8)   + (touchRead(PIN_TOUCH_FWD) * 0.2);
+    baseBwd   = (baseBwd * 0.8)   + (touchRead(PIN_TOUCH_BWD) * 0.2);
+    baseLeft  = (baseLeft * 0.8)  + (touchRead(PIN_TOUCH_LEFT) * 0.2);
+    baseRight = (baseRight * 0.8) + (touchRead(PIN_TOUCH_RIGHT) * 0.2);
+    delay(20);
+  }
+
+  // Connect to 2.4 GHz Wi-Fi
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(ssid);
+  Serial.print("Connecting to 2.4 GHz WiFi 'Brajesh'");
 
   int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
+  while (WiFi.status() != WL_CONNECTED && attempts < 25) {
+    delay(400);
     Serial.print(".");
     attempts++;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi Connected! IP: ");
+    Serial.println("\nWiFi Connected! Remote IP: ");
     Serial.println(WiFi.localIP());
   } else {
-    Serial.println("\nWiFi connection offline.");
+    Serial.println("\nWiFi Connection Pending / Running Local.");
   }
 }
 
@@ -193,14 +163,20 @@ void loop() {
     int valLeft  = touchRead(PIN_TOUCH_LEFT);
     int valRight = touchRead(PIN_TOUCH_RIGHT);
 
+    // Continuous Adaptive Touch Detection
+    bool touchedFwd   = (valFwd < (baseFwd - TOUCH_DELTA));
+    bool touchedBwd   = (valBwd < (baseBwd - TOUCH_DELTA));
+    bool touchedLeft  = (valLeft < (baseLeft - TOUCH_DELTA));
+    bool touchedRight = (valRight < (baseRight - TOUCH_DELTA));
+
+    // Adapt baselines when untouched to smoothly handle battery voltage/temperature changes
+    if (!touchedFwd)   baseFwd   = (baseFwd * 0.98)   + (valFwd * 0.02);
+    if (!touchedBwd)   baseBwd   = (baseBwd * 0.98)   + (valBwd * 0.02);
+    if (!touchedLeft)  baseLeft  = (baseLeft * 0.98)  + (valLeft * 0.02);
+    if (!touchedRight) baseRight = (baseRight * 0.98) + (valRight * 0.02);
+
     float linear_x = 0.0;
     float angular_z = 0.0;
-
-    // Use dynamic auto-calibrated thresholds
-    bool touchedFwd   = (valFwd < threshFwd);
-    bool touchedBwd   = (valBwd < threshBwd);
-    bool touchedLeft  = (valLeft < threshLeft);
-    bool touchedRight = (valRight < threshRight);
 
     const char* state_text = "STOPPED";
 
@@ -224,7 +200,7 @@ void loop() {
       else state_text = "SPIN RIGHT";
     }
 
-    // Send UDP packet over Wi-Fi
+    // 1. Send UDP packet over Wi-Fi
     if (WiFi.status() == WL_CONNECTED) {
       char msg[64];
       snprintf(msg, sizeof(msg), "CMD,%.2f,%.2f", linear_x, angular_z);
@@ -233,7 +209,10 @@ void loop() {
       udp.endPacket();
     }
 
-    // Update LEDs and OLED
+    // 2. Also print to Serial for USB debugging
+    Serial.printf("CMD,%.2f,%.2f\n", linear_x, angular_z);
+
+    // 3. Update LEDs and OLED
     updateLEDs(linear_x, angular_z);
     updateOLED(linear_x, angular_z, state_text, WiFi.status() == WL_CONNECTED);
   }
