@@ -1,7 +1,7 @@
 /*
  * Wireless ESP32 Robot Receiver & TB6612FNG Motor Driver Controller
  * 
- * Compatible with BOTH ESP32 Arduino Core 2.x and Core 3.x+
+ * Auto-Discovers Laptop ROS 2 Bridge via Unicast Heartbeat!
  * 
  * Hardware Wiring:
  * 1. TB6612FNG Driver to ESP32 #2:
@@ -19,8 +19,8 @@
  *    - BIN2 (Right Dir 2) -> GPIO 26 (D26)
  * 
  * 2. Motor / LED Outputs:
- *    - A01 & A02 -> Left LED + 220 Ohm Resistor (or Left Motor)
- *    - B01 & B02 -> Right LED + 220 Ohm Resistor (or Right Motor)
+ *    - A01 & A02 -> Left LED (White) + 220 Ohm Resistor
+ *    - B01 & B02 -> Right LED (Blue) + 220 Ohm Resistor
  */
 
 #include <WiFi.h>
@@ -28,8 +28,9 @@
 #include <esp_arduino_version.h>
 
 // WiFi Configuration
-const char* ssid     = "Brajesh_2.4GHz";
-const char* password = "Ash@0812#@";
+const char* ssid      = "Brajesh_2.4GHz";
+const char* password  = "Ash@0812#@";
+const char* laptop_ip = "192.168.29.131";
 
 // UDP Port to receive motor velocity commands from Laptop ROS 2
 const int udp_port = 8889;
@@ -54,8 +55,9 @@ const int PWM_CHAN_B   = 1;
 const float WHEEL_BASE   = 0.35; // 0.35m track width
 const float WHEEL_RADIUS = 0.05; // 0.05m radius
 
-unsigned long lastPacketTime = 0;
-const unsigned long TIMEOUT_MS = 500; // Auto-brake if WiFi lost for 0.5s
+unsigned long lastPacketTime    = 0;
+unsigned long lastHeartbeatTime = 0;
+const unsigned long TIMEOUT_MS  = 500; // Auto-brake if no signal for 0.5s
 
 void setup() {
   Serial.begin(115200);
@@ -102,6 +104,17 @@ void setup() {
 
   udp.begin(udp_port);
   Serial.printf("Listening for velocity commands on UDP port %d\n", udp_port);
+
+  // Send initial handshake
+  sendHeartbeat();
+}
+
+void sendHeartbeat() {
+  if (WiFi.status() == WL_CONNECTED) {
+    udp.beginPacket(laptop_ip, udp_port);
+    udp.write((const uint8_t*)"HELLO_ROBOT", 11);
+    udp.endPacket();
+  }
 }
 
 void setMotorLeft(int speed, bool forward) {
@@ -171,6 +184,12 @@ void processCommand(float linear_x, float angular_z) {
 }
 
 void loop() {
+  // Send heartbeat every 1 second to keep laptop connection alive
+  if (millis() - lastHeartbeatTime > 1000) {
+    lastHeartbeatTime = millis();
+    sendHeartbeat();
+  }
+
   int packetSize = udp.parsePacket();
   if (packetSize) {
     char packetBuffer[64];
