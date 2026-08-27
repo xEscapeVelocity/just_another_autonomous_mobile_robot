@@ -57,7 +57,6 @@ def generate_launch_description():
             '/joint_states@sensor_msgs/msg/JointState@ignition.msgs.Model',
             '/clock@rosgraph_msgs/msg/Clock[ignition.msgs.Clock',
             '/scan@sensor_msgs/msg/LaserScan[ignition.msgs.LaserScan',
-            '/tf@tf2_msgs/msg/TFMessage[ignition.msgs.Pose_V',
         ],
         output='screen'
     )

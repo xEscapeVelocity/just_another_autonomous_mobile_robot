@@ -1,24 +1,7 @@
 /*
- * Wireless ESP32 Handheld Remote with BOTH 4 LEDs + OLED Screen Active!
+ * Wireless ESP32 Handheld Remote with Auto-Calibrating Touch Sensitivity & OLED Dashboard
  * 
- * Hardware Wiring:
- * 1. 0.96" I2C OLED Display (SSD1306):
- *    - VDD (VCC) -> ESP32 3V3
- *    - GND       -> ESP32 GND
- *    - SDA       -> ESP32 GPIO 32 (D32)
- *    - SCK (SCL) -> ESP32 GPIO 33 (D33)
- * 
- * 2. 4 Touch Wires (Input Steering):
- *    - GPIO 4  (D4)  -> FORWARD
- *    - GPIO 15 (D15) -> BACKWARD
- *    - GPIO 13 (D13) -> TURN LEFT
- *    - GPIO 27 (D27) -> TURN RIGHT
- * 
- * 3. 4 Existing Breadboard LEDs (Kept in place!):
- *    - GPIO 18 (D18) -> Green LED (Forward)
- *    - GPIO 19 (D19) -> Yellow LED 1 (Left Turn)
- *    - GPIO 21 (D21) -> Yellow LED 2 (Right Turn)
- *    - GPIO 22 (D22) -> Red LED (Stop / Brake)
+ * Works seamlessly on BOTH USB power and 18650 Battery power!
  */
 
 #include <WiFi.h>
@@ -27,7 +10,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-// WiFi Configuration - Replace with your WiFi SSID and Password
+// WiFi Configuration - Enter your WiFi SSID and Password
 const char* ssid     = "YOUR_WIFI_SSID";
 const char* password = "YOUR_WIFI_PASSWORD";
 
@@ -41,7 +24,7 @@ WiFiUDP udp;
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// OLED Custom I2C Pins (Leaving D21 and D22 free for your LEDs!)
+// OLED Custom I2C Pins
 const int PIN_OLED_SDA = 32;
 const int PIN_OLED_SCL = 33;
 
@@ -57,7 +40,9 @@ const int LED_YELLOW_L = 19;
 const int LED_YELLOW_R = 21;
 const int LED_RED      = 22;
 
-const int TOUCH_THRESHOLD = 350;
+// Auto-Calibrated Baselines & Thresholds
+int baseFwd = 800, baseBwd = 800, baseLeft = 800, baseRight = 800;
+int threshFwd = 550, threshBwd = 550, threshLeft = 550, threshRight = 550;
 
 unsigned long lastSendTime = 0;
 const unsigned long SEND_INTERVAL_MS = 50; // 20 Hz
@@ -119,6 +104,34 @@ void updateOLED(float linear_x, float angular_z, const char* state_text, bool wi
   display.display();
 }
 
+void calibrateTouchSensors() {
+  Serial.println("Calibrating touch baselines (keep hands away from wires)...");
+  long sumFwd = 0, sumBwd = 0, sumLeft = 0, sumRight = 0;
+  int samples = 20;
+
+  for (int i = 0; i < samples; i++) {
+    sumFwd   += touchRead(PIN_TOUCH_FWD);
+    sumBwd   += touchRead(PIN_TOUCH_BWD);
+    sumLeft  += touchRead(PIN_TOUCH_LEFT);
+    sumRight += touchRead(PIN_TOUCH_RIGHT);
+    delay(30);
+  }
+
+  baseFwd   = sumFwd / samples;
+  baseBwd   = sumBwd / samples;
+  baseLeft  = sumLeft / samples;
+  baseRight = sumRight / samples;
+
+  // Set threshold to 70% of untouched baseline (e.g. 800 -> 560)
+  threshFwd   = (int)(baseFwd * 0.70);
+  threshBwd   = (int)(baseBwd * 0.70);
+  threshLeft  = (int)(baseLeft * 0.70);
+  threshRight = (int)(baseRight * 0.70);
+
+  Serial.printf("Baselines -> Fwd:%d Bwd:%d Left:%d Right:%d\n", baseFwd, baseBwd, baseLeft, baseRight);
+  Serial.printf("Thresholds -> Fwd:%d Bwd:%d Left:%d Right:%d\n", threshFwd, threshBwd, threshLeft, threshRight);
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -126,15 +139,25 @@ void setup() {
   pinMode(LED_YELLOW_L, OUTPUT);
   pinMode(LED_YELLOW_R, OUTPUT);
   pinMode(LED_RED, OUTPUT);
-  digitalWrite(LED_RED, HIGH); // Red on at boot
+  digitalWrite(LED_RED, HIGH);
 
-  // OLED Init on D32 (SDA) and D33 (SCL)
+  // OLED Init
   Wire.begin(PIN_OLED_SDA, PIN_OLED_SCL);
   if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     oledAvailable = true;
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
     display.setTextSize(1);
+    display.setCursor(10, 20);
+    display.println("CALIBRATING...");
+    display.display();
+  }
+
+  // Calibrate Touch for current power source (Battery or USB)
+  calibrateTouchSensors();
+
+  if (oledAvailable) {
+    display.clearDisplay();
     display.setCursor(10, 20);
     display.println("CONNECTING WIFI...");
     display.display();
@@ -157,7 +180,7 @@ void setup() {
     Serial.println("\nWiFi Connected! IP: ");
     Serial.println(WiFi.localIP());
   } else {
-    Serial.println("\nWiFi connection failed (offline mode).");
+    Serial.println("\nWiFi connection offline.");
   }
 }
 
@@ -173,10 +196,11 @@ void loop() {
     float linear_x = 0.0;
     float angular_z = 0.0;
 
-    bool touchedFwd   = (valFwd < TOUCH_THRESHOLD);
-    bool touchedBwd   = (valBwd < TOUCH_THRESHOLD);
-    bool touchedLeft  = (valLeft < TOUCH_THRESHOLD);
-    bool touchedRight = (valRight < TOUCH_THRESHOLD);
+    // Use dynamic auto-calibrated thresholds
+    bool touchedFwd   = (valFwd < threshFwd);
+    bool touchedBwd   = (valBwd < threshBwd);
+    bool touchedLeft  = (valLeft < threshLeft);
+    bool touchedRight = (valRight < threshRight);
 
     const char* state_text = "STOPPED";
 
@@ -200,7 +224,7 @@ void loop() {
       else state_text = "SPIN RIGHT";
     }
 
-    // 1. Send UDP packet over Wi-Fi
+    // Send UDP packet over Wi-Fi
     if (WiFi.status() == WL_CONNECTED) {
       char msg[64];
       snprintf(msg, sizeof(msg), "CMD,%.2f,%.2f", linear_x, angular_z);
@@ -209,7 +233,7 @@ void loop() {
       udp.endPacket();
     }
 
-    // 2. Update Both LEDs and OLED Screen simultaneously
+    // Update LEDs and OLED
     updateLEDs(linear_x, angular_z);
     updateOLED(linear_x, angular_z, state_text, WiFi.status() == WL_CONNECTED);
   }
