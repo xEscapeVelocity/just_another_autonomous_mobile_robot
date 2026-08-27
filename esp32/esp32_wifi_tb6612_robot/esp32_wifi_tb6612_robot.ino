@@ -1,6 +1,8 @@
 /*
  * Wireless ESP32 Robot Receiver & TB6612FNG Motor Driver Controller
  * 
+ * Compatible with BOTH ESP32 Arduino Core 2.x and Core 3.x+
+ * 
  * Hardware Wiring:
  * 1. TB6612FNG Driver to ESP32 #2:
  *    - VCC  -> ESP32 3V3
@@ -23,8 +25,9 @@
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <esp_arduino_version.h>
 
-// WiFi Configuration - Must match your 2.4 GHz WiFi
+// WiFi Configuration
 const char* ssid     = "Brajesh_2.4GHz";
 const char* password = "Ash@0812#@";
 
@@ -41,7 +44,7 @@ const int PIN_PWMB = 13; // Right Speed
 const int PIN_BIN1 = 25; // Right Dir 1
 const int PIN_BIN2 = 26; // Right Dir 2
 
-// PWM Channels on ESP32
+// PWM Configuration
 const int PWM_FREQ     = 5000;
 const int PWM_RES_BITS = 8;    // 0 - 255
 const int PWM_CHAN_A   = 0;
@@ -63,28 +66,39 @@ void setup() {
   pinMode(PIN_BIN1, OUTPUT);
   pinMode(PIN_BIN2, OUTPUT);
 
-  // Configure PWM Channels on ESP32
+  // Configure PWM Channels (Universal Core 2.x & 3.x support)
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+  ledcAttach(PIN_PWMA, PWM_FREQ, PWM_RES_BITS);
+  ledcAttach(PIN_PWMB, PWM_FREQ, PWM_RES_BITS);
+#else
   ledcSetup(PWM_CHAN_A, PWM_FREQ, PWM_RES_BITS);
   ledcSetup(PWM_CHAN_B, PWM_FREQ, PWM_RES_BITS);
   ledcAttachPin(PIN_PWMA, PWM_CHAN_A);
   ledcAttachPin(PIN_PWMB, PWM_CHAN_B);
+#endif
 
   // Initial State: Stopped
   stopMotors();
 
-  // Connect to Wi-Fi
+  // Connect to 2.4 GHz Wi-Fi
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi: ");
   Serial.println(ssid);
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+    delay(400);
     Serial.print(".");
+    attempts++;
   }
 
-  Serial.println("\nWiFi Connected! Robot IP: ");
-  Serial.println(WiFi.localIP());
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi Connected! Robot IP: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\nWiFi Connection Failed.");
+  }
 
   udp.begin(udp_port);
   Serial.printf("Listening for velocity commands on UDP port %d\n", udp_port);
@@ -102,7 +116,12 @@ void setMotorLeft(int speed, bool forward) {
     digitalWrite(PIN_AIN1, LOW);
     digitalWrite(PIN_AIN2, HIGH);
   }
+
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+  ledcWrite(PIN_PWMA, speed);
+#else
   ledcWrite(PWM_CHAN_A, speed);
+#endif
 }
 
 void setMotorRight(int speed, bool forward) {
@@ -117,7 +136,12 @@ void setMotorRight(int speed, bool forward) {
     digitalWrite(PIN_BIN1, LOW);
     digitalWrite(PIN_BIN2, HIGH);
   }
+
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
+  ledcWrite(PIN_PWMB, speed);
+#else
   ledcWrite(PWM_CHAN_B, speed);
+#endif
 }
 
 void stopMotors() {
@@ -127,8 +151,6 @@ void stopMotors() {
 
 void processCommand(float linear_x, float angular_z) {
   // Differential Drive Inverse Kinematics
-  // v_left = v - (omega * L / 2)
-  // v_right = v + (omega * L / 2)
   float v_left  = linear_x - (angular_z * WHEEL_BASE / 2.0);
   float v_right = linear_x + (angular_z * WHEEL_BASE / 2.0);
 
@@ -169,7 +191,7 @@ void loop() {
     }
   }
 
-  // Safety Timeout: If no command received in 500ms, emergency stop
+  // Safety Timeout: If no command received in 500ms, stop motors
   if (millis() - lastPacketTime > TIMEOUT_MS) {
     stopMotors();
   }
