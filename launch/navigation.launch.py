@@ -17,7 +17,7 @@ def generate_launch_description():
     default_map = os.path.join(
         get_package_share_directory(package_name),
         'maps',
-        'my_map_save.yaml'
+        'my_arena_map.yaml'
     )
 
     default_params_file = os.path.join(
