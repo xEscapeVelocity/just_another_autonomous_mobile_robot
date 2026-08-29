@@ -38,7 +38,7 @@ install(
 )
 
 install(
-  DIRECTORY config description launch worlds esp32
+  DIRECTORY config description launch worlds esp32 maps
   DESTINATION share/${PROJECT_NAME}
 )
 
