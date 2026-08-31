@@ -33,7 +33,7 @@ if(BUILD_TESTING)
 endif()
 
 install(
-  PROGRAMS scripts/esp32_bridge.py scripts/wireless_bridge.py scripts/odom_to_tf.py
+  PROGRAMS scripts/esp32_bridge.py scripts/wireless_bridge.py scripts/odom_to_tf.py scripts/auto_initial_pose.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

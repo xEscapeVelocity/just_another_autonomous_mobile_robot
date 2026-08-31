@@ -5,6 +5,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 
 
 def generate_launch_description():
@@ -61,9 +62,18 @@ def generate_launch_description():
         }.items()
     )
 
+    auto_pose_node = Node(
+        package=package_name,
+        executable='auto_initial_pose.py',
+        name='auto_pose_initializer',
+        parameters=[{'use_sim_time': use_sim_time}],
+        output='screen'
+    )
+
     return LaunchDescription([
         declare_use_sim_time,
         declare_map_yaml,
         declare_params_file,
-        nav2_bringup
+        nav2_bringup,
+        auto_pose_node
     ])
