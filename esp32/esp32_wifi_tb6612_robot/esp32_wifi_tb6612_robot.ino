@@ -1,33 +1,8 @@
 /*
  * Unified ESP32 Robot Firmware:
  * 1. Drives Left & Right GA25 Motors via TB6612FNG (Core 2.x & 3.x compatible)
- * 2. Reads VL53L0X Laser Distance Sensor via I2C (Pins 21/22) with 8191 filter
+ * 2. Unlocked 2.0+ Meter Long-Range Mode for VL53L0X via Adafruit configSensor
  * 3. Bidirectional UDP Telemetry with Laptop ROS 2
- * 
- * Hardware Wiring:
- * 1. TB6612FNG Driver to ESP32:
- *    - VCC  -> ESP32 3V3
- *    - STBY -> ESP32 3V3
- *    - GND  -> ESP32 GND (and Battery Ground)
- *    - VM   -> 7.4V Battery (+)
- *    
- *    - PWMA (Left Speed)  -> GPIO 12 (D12)
- *    - AIN1 (Left Dir 1)  -> GPIO 14 (D14)
- *    - AIN2 (Left Dir 2)  -> GPIO 27 (D27)
- *    
- *    - PWMB (Right Speed) -> GPIO 13 (D13)
- *    - BIN1 (Right Dir 1) -> GPIO 25 (D25)
- *    - BIN2 (Right Dir 2) -> GPIO 26 (D26)
- * 
- * 2. GY-VL53L0X Laser Sensor to ESP32:
- *    - VCC -> ESP32 3V3
- *    - GND -> ESP32 GND
- *    - SDA -> GPIO 21 (D21)
- *    - SCL -> GPIO 22 (D22)
- * 
- * 3. Motor Outputs:
- *    - A01 & A02 -> Left Motor
- *    - B01 & B02 -> Right Motor
  */
 
 #include <WiFi.h>
@@ -64,10 +39,9 @@ const int PWM_CHAN_B   = 1;
 
 unsigned long lastPacketTime    = 0;
 unsigned long lastLaserScanTime = 0;
-const unsigned long TIMEOUT_MS  = 500; // Auto-brake if no signal for 0.5s
+const unsigned long TIMEOUT_MS  = 500;
 
 void setMotors(int left_pwm, int right_pwm) {
-  // Left Motor Control
   int speed_a = constrain(abs(left_pwm), 0, 255);
   if (left_pwm > 0) {
     digitalWrite(PIN_AIN1, HIGH);
@@ -86,7 +60,6 @@ void setMotors(int left_pwm, int right_pwm) {
   ledcWrite(PWM_CHAN_A, speed_a);
 #endif
 
-  // Right Motor Control
   int speed_b = constrain(abs(right_pwm), 0, 255);
   if (right_pwm > 0) {
     digitalWrite(PIN_BIN1, HIGH);
@@ -108,9 +81,9 @@ void setMotors(int left_pwm, int right_pwm) {
 
 void setup() {
   Serial.begin(115200);
-  delay(1000); // Power stabilization
+  delay(1000);
 
-  Serial.println("\n--- Booting Unified Robot ESP32 ---");
+  Serial.println("\n--- Booting Unified Robot ESP32 (Long Range Mode) ---");
 
   // Motor GPIO Setup
   pinMode(PIN_AIN1, OUTPUT);
@@ -118,7 +91,6 @@ void setup() {
   pinMode(PIN_BIN1, OUTPUT);
   pinMode(PIN_BIN2, OUTPUT);
 
-  // Universal PWM Setup (Core 2.x & 3.x)
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && (ESP_ARDUINO_VERSION_MAJOR >= 3)
   ledcAttach(PIN_PWMA, PWM_FREQ, PWM_RES_BITS);
   ledcAttach(PIN_PWMB, PWM_FREQ, PWM_RES_BITS);
@@ -153,19 +125,23 @@ void setup() {
     Serial.println("\n❌ WiFi Failed! Check router connection.");
   }
 
-  // 2. I2C Laser Sensor Setup
+  // 2. I2C Laser Setup with Official Adafruit Long-Range Profile
   Wire.begin(21, 22);
   Wire.setTimeOut(100);
   if (lox.begin()) {
     laser_ok = true;
-    Serial.println("✅ VL53L0X Laser Sensor Online!");
+    
+    // Built-in 2.0+ Meter Long-Range configuration
+    lox.configSensor(Adafruit_VL53L0X::VL53L0X_SENSE_LONG_RANGE);
+
+    Serial.println("✅ VL53L0X Laser Sensor Online in 2.0m Long-Range Mode!");
   } else {
-    Serial.println("⚠️ Warning: VL53L0X not found on pins 21/22. Motors will still work!");
+    Serial.println("⚠️ Warning: VL53L0X not found on pins 21/22.");
   }
 }
 
 void loop() {
-  // 1. Process Motor Velocity Commands from Remote / ROS 2
+  // 1. Process Motor Commands
   int packetSize = udp.parsePacket();
   if (packetSize) {
     char packetBuffer[255];
@@ -179,19 +155,17 @@ void loop() {
     }
   }
 
-  // Auto-Brake safety timeout
   if (millis() - lastPacketTime > TIMEOUT_MS) {
     setMotors(0, 0);
   }
 
-  // 2. Read & Filter Laser Sensor at 20Hz (every 50ms)
-  if (laser_ok && (millis() - lastLaserScanTime > 50)) {
+  // 2. Read Laser Sensor (every 80ms for Long-Range Mode)
+  if (laser_ok && (millis() - lastLaserScanTime > 80)) {
     lastLaserScanTime = millis();
     VL53L0X_RangingMeasurementData_t measure;
     lox.rangingTest(&measure, false);
 
-    // Filter out 8191 out-of-range flag and noise
-    if (measure.RangeStatus == 0 && measure.RangeMilliMeter < 2200 && measure.RangeMilliMeter > 20) {
+    if (measure.RangeStatus != 4 && measure.RangeMilliMeter < 2500 && measure.RangeMilliMeter > 20) {
       float dist_m = measure.RangeMilliMeter / 1000.0;
       String packet = "DIST:" + String(dist_m, 3);
       udp.beginPacket(laptop_ip, laser_port);
